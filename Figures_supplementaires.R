@@ -20,13 +20,7 @@ find_input_path <- function() {
   candidates <- c(
     env_path,
     "student-mat.csv",
-    "studentmat.csv",
-    "data/student-mat.csv",
-    "data/studentmat.csv",
-    "/mnt/data/student-mat.csv",
-    "/mnt/data/studentmat.csv",
-    "/mnt/project/student-mat.csv",
-    "/mnt/project/studentmat.csv"
+    "studentmat.csv"
   )
   candidates <- candidates[nzchar(candidates)]
   found <- candidates[file.exists(candidates)]
