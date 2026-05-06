@@ -36,7 +36,7 @@ TAB_DIR <- file.path(OUT_DIR, "tables")
 FIG_DIR <- file.path(OUT_DIR, "figures")
 dir.create(FIG_DIR, recursive = TRUE, showWarnings = FALSE)
 
-if (!exists("SaveFigure", mode = "function")) {
+if (file.exists("SaveFigure.r")) {
   source("SaveFigure.r", local = FALSE)
 }
 
@@ -53,15 +53,29 @@ theme_report <- function() {
 }
 
 save_pdf_figure <- function(fname, plot_object) {
-  SaveFigure(
-    plot_object = plot_object,
-    fname = fname,
-    folder = FIG_DIR,
-    dpi = FIG_DPI,
-    width_cm = FIG_WIDTH_CM,
-    height_cm = FIG_HEIGHT_CM,
-    apply_theme = FALSE
+  if (exists("SaveFigure", mode = "function")) {
+    return(SaveFigure(
+      plot_object = plot_object,
+      fname = fname,
+      folder = FIG_DIR,
+      dpi = FIG_DPI,
+      width_cm = FIG_WIDTH_CM,
+      height_cm = FIG_HEIGHT_CM,
+      apply_theme = FALSE
+    ))
+  }
+
+  full_path <- file.path(FIG_DIR, basename(fname))
+  ggplot2::ggsave(
+    filename = full_path,
+    plot = plot_object,
+    width = FIG_WIDTH_CM / 2.54,
+    height = FIG_HEIGHT_CM / 2.54,
+    units = "in",
+    device = "pdf"
   )
+
+  invisible(full_path)
 }
 
 # ---------------------------------------------------------------------
@@ -137,8 +151,8 @@ suppress_logit_boundary_warning <- function(expr) {
 terms_file <- file.path(TAB_DIR, "3.10_termes_retenus_par_modele.csv")
 if (file.exists(terms_file)) {
   terms_summary <- read.csv(terms_file, stringsAsFactors = FALSE)
-  TERMS_SEL <- stats::na.omit(terms_summary$modele_lineaire_avec_notes)
-  TERMS_SEL_HN <- stats::na.omit(terms_summary$modele_lineaire_sans_notes)
+  TERMS_SEL <- stats::na.omit(terms_summary$modele_lineaire_avec_G1_G2)
+  TERMS_SEL_HN <- stats::na.omit(terms_summary$modele_lineaire_sans_G1_G2)
   TERMS_LOGIT_SEL <- stats::na.omit(terms_summary$modele_logistique_selectionne)
 } else {
   TERMS_SEL <- c(
@@ -411,12 +425,24 @@ save_pdf_figure("3.7_observe_vs_ajuste.pdf", plot_obs_ajuste)
 # =====================================================================
 cat("[6/6] Evolution de l'AIC durant la selection\n")
 
-log_file <- file.path(TAB_DIR, "3.6_log_stepAIC_avec_notes.csv")
+log_file <- file.path(TAB_DIR, "3.6_log_selection_AIC_avec_notes.csv")
 if (!file.exists(log_file)) {
-  stop("Le fichier 3.6_log_stepAIC_avec_notes.csv est introuvable. Lance Modelisation.R avant ce script.")
+  stop("Le fichier 3.6_log_selection_AIC_avec_notes.csv est introuvable. Lance Modelisation.R avant ce script.")
 }
+proc_file <- file.path(TAB_DIR, "3.6_comparaison_procedures_AIC_avec_notes.csv")
+if (!file.exists(proc_file)) {
+  stop("Le fichier 3.6_comparaison_procedures_AIC_avec_notes.csv est introuvable. Lance Modelisation.R avant ce script.")
+}
+
+proc_table <- read.csv(proc_file, stringsAsFactors = FALSE)
+best_proc <- proc_table$procedure[which.min(proc_table$AIC)]
+
 log_sel <- read.csv(log_file, stringsAsFactors = FALSE)
-log_sel <- log_sel[is.finite(log_sel$AIC), ]
+log_sel <- subset(log_sel, procedure == best_proc & is.finite(AIC))
+
+if (nrow(log_sel) == 0) {
+  stop("Aucune iteration AIC valide pour la procedure retenue : ", best_proc)
+}
 
 last <- nrow(log_sel)
 aic_labels <- log_sel[c(1, last), ]
@@ -433,9 +459,9 @@ plot_aic <- ggplot2::ggplot(log_sel, ggplot2::aes(x = iteration, y = AIC)) +
     family = "serif"
   ) +
   ggplot2::labs(
-    x = "Iteration de stepAIC backward",
+    x = "Iteration de la procedure AIC retenue",
     y = "AIC",
-    title = "Decroissance de l'AIC pendant la selection backward"
+    title = paste("Evolution de l'AIC pendant la selection :", best_proc)
   ) +
   theme_report()
 save_pdf_figure("3.6_evolution_AIC_selection.pdf", plot_aic)

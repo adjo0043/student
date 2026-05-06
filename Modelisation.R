@@ -1,16 +1,16 @@
 # =====================================================================
 # Modelisation - ACTU-F-4001 - Student Performance
 # =====================================================================
-# Objectif :
-#   - conserver les donnees, traitements, modeles, tableaux et figures ;
-#   - garder la logique statistique initiale ;
-#   - produire tous les fichiers CSV/PDF attendus pour le rapport.
+# Objectif : modeliser la performance finale (G3) a partir des autres
+# variables quantitatives et qualitatives, en utilisant des modeles
+# lineaires et logistiques, et en comparant les procedures de selection
+# de modeles.
 # =====================================================================
 
 # =====================================================================
 # 1. Configuration
 # =====================================================================
-
+rm(list = ls())
 suppressPackageStartupMessages({
   if (!requireNamespace("MASS", quietly = TRUE)) {
     stop("Le package MASS est requis. Installer avec install.packages('MASS').")
@@ -19,27 +19,22 @@ suppressPackageStartupMessages({
     stop("Le package ggplot2 est requis. Installer avec install.packages('ggplot2').")
   }
 })
-
 set.seed(42)
 options(stringsAsFactors = FALSE)
-
 TERMS_QUANT <- c(
   "G1", "G2", "age", "Medu", "Fedu", "traveltime", "studytime",
   "failures", "famrel", "freetime", "goout", "Dalc", "Walc",
   "health", "absences"
 )
-
 TERMS_QUALI <- c(
   "school", "sex", "address", "famsize", "Pstatus", "Mjob", "Fjob",
   "reason", "guardian", "schoolsup", "famsup", "paid", "activities",
   "nursery", "higher", "internet", "romantic"
 )
-
 TERMS_FULL <- c(TERMS_QUANT, TERMS_QUALI)
 TERMS_HORS_NOTES <- setdiff(TERMS_FULL, c("G1", "G2"))
 TERMS_SANS_G1 <- setdiff(TERMS_FULL, "G1")
 TERMS_SANS_G2 <- setdiff(TERMS_FULL, "G2")
-
 FACTOR_REFERENCES <- c(
   school = "GP",
   sex = "F",
@@ -69,22 +64,18 @@ resolve_input_path <- function() {
   )
   candidates <- candidates[nzchar(candidates)]
   found <- candidates[file.exists(candidates)]
-
   if (length(found) == 0) {
     stop(
       "Fichier de donnees introuvable. ",
       "Definir STUDENT_DATA_PATH ou INPUT_PATH, ou placer student-mat.csv ici."
     )
   }
-
   found[1]
 }
-
 INPUT_PATH <- resolve_input_path()
 OUT_DIR <- Sys.getenv("OUTPUT_DIR", unset = "outputs_modelisation")
 TAB_DIR <- file.path(OUT_DIR, "tables")
 FIG_DIR <- file.path(OUT_DIR, "figures")
-
 FIG_WIDTH_CM <- 15
 FIG_HEIGHT_CM <- 11.25
 FIG_DPI <- 600
@@ -92,23 +83,17 @@ FIG_DPI <- 600
 if (file.exists("SaveFigure.r")) {
   source("SaveFigure.r", local = FALSE)
 }
-
 # =====================================================================
 # 2. Chargement
 # =====================================================================
-
 df <- utils::read.csv(INPUT_PATH, sep = ";", stringsAsFactors = FALSE)
 n_obs <- nrow(df)
-
 cat(sprintf("[Chargement] %d observations, %d variables.\n", n_obs, ncol(df)))
-
 required_cols <- unique(c("G3", TERMS_FULL))
 missing_cols <- setdiff(required_cols, names(df))
-
 if (length(missing_cols) > 0) {
   stop("Colonnes manquantes : ", paste(missing_cols, collapse = ", "))
 }
-
 # =====================================================================
 # 3. Preparation
 # =====================================================================
@@ -152,88 +137,204 @@ theme_report <- function() {
     )
 }
 
-suppress_logit_boundary_warning <- function(expr) {
-  withCallingHandlers(
+suppress_logit_boundary_warning <- function(expr, contexte = "modele logit") {
+  warns <- character(0)
+  result <- withCallingHandlers(
     expr,
     warning = function(w) {
       msg <- conditionMessage(w)
       boundary_warning <- grepl("^glm\\.fit: .*0 (or|ou) 1", msg)
 
       if (boundary_warning) {
+        warns <<- c(warns, msg)
         invokeRestart("muffleWarning")
       }
     }
   )
-}
 
-fit_model <- function(formula, data, family = c("ols", "logit")) {
-  family <- match.arg(family)
-
-  if (family == "ols") {
-    return(stats::lm(formula, data = data))
+  if (length(warns) > 0L) {
+    cat(sprintf(
+      "  [info] %s : %d avertissement(s) glm.fit signalent que certaines\n         probabilites predites atteignent 0 ou 1.\n",
+      contexte, length(warns)
+    ))
   }
 
+  result
+}
+
+fit_model <- function(formula, data, family = c("ols", "logit"),
+                     contexte = "modele logit") {
+  family <- match.arg(family)
+  fit_args <- list(formula = formula, data = data)
+  if (family == "ols") {
+    return(do.call("lm", fit_args, envir = asNamespace("stats")))
+  }
+  fit_args$family <- stats::binomial(link = "logit")
   suppress_logit_boundary_warning(
-    stats::glm(formula, data = data, family = stats::binomial(link = "logit"))
+    do.call("glm", fit_args, envir = asNamespace("stats")),
+    contexte = contexte
   )
 }
 
-step_aic_backward <- function(data, response, terms, family = c("ols", "logit"),
-                              verbose = FALSE) {
+step_aic_select <- function(data, response, terms, family = c("ols", "logit"),
+                            direction = c("backward", "forward", "both"),
+                            start = c("full", "null"), verbose = FALSE,
+                            contexte = "stepAIC logit") {
   family <- match.arg(family)
-  start_model <- fit_model(make_formula(response, terms), data, family = family)
+  direction <- match.arg(direction)
+  start <- match.arg(start)
+
+  full_formula <- make_formula(response, terms)
+  null_formula <- stats::as.formula(paste(response, "~ 1"))
+
+  start_formula <- if (start == "full") full_formula else null_formula
+  start_model <- fit_model(
+    start_formula, data, family = family,
+    contexte = paste(contexte, "-", direction, start, "- modele de depart")
+  )
+
   trace_value <- if (isTRUE(verbose)) 1 else 0
+  scope_value <- list(lower = null_formula, upper = full_formula)
 
   final_model <- if (family == "logit") {
     suppress_logit_boundary_warning(
-      MASS::stepAIC(start_model, direction = "backward", trace = trace_value)
+      MASS::stepAIC(
+        start_model,
+        scope = scope_value,
+        direction = direction,
+        trace = trace_value
+      ),
+      contexte = paste(contexte, "-", direction, start, "- iterations")
     )
   } else {
-    MASS::stepAIC(start_model, direction = "backward", trace = trace_value)
+    MASS::stepAIC(
+      start_model,
+      scope = scope_value,
+      direction = direction,
+      trace = trace_value
+    )
   }
 
   list(
     model = final_model,
     terms = attr(stats::terms(final_model), "term.labels"),
-    log = clean_step_log(final_model, initial_terms = terms)
+    log = clean_step_log(
+      final_model,
+      procedure = paste(direction, start, sep = "_")
+    ),
+    direction = direction,
+    start = start
   )
 }
 
-clean_step_log <- function(model, initial_terms) {
+clean_step_log <- function(model, procedure) {
   anova_table <- model$anova
   final_terms <- attr(stats::terms(model), "term.labels")
-
   if (is.null(anova_table)) {
     return(data.frame(
+      procedure = procedure,
       iteration = 0,
-      terme_retire = "(modele final)",
-      n_termes = length(final_terms),
+      action = "modele final",
+      terme = NA_character_,
+      n_termes_final = length(final_terms),
       AIC = round(stats::AIC(model), 4),
       stringsAsFactors = FALSE
     ))
   }
-
   step_col <- if ("Step" %in% names(anova_table)) {
     as.character(anova_table$Step)
   } else {
     rep("", nrow(anova_table))
   }
-
-  step_col[is.na(step_col) | step_col == ""] <- "(modele de depart)"
-  step_col <- gsub("^[-+] ", "", step_col)
-
+  step_col[is.na(step_col) | step_col == ""] <- "modele de depart"
+  action_type <- ifelse(
+    grepl("^\\+ ", step_col),
+    "ajout",
+    ifelse(grepl("^- ", step_col), "retrait", "depart")
+  )
+  terme <- gsub("^[-+] ", "", step_col)
+  terme[action_type == "depart"] <- NA_character_
   aic_col <- if ("AIC" %in% names(anova_table)) {
     anova_table$AIC
   } else {
     rep(NA_real_, nrow(anova_table))
   }
-
   data.frame(
+    procedure = procedure,
     iteration = seq_len(nrow(anova_table)) - 1,
-    terme_retire = step_col,
-    n_termes = pmax(length(initial_terms) - (seq_len(nrow(anova_table)) - 1), 0),
+    action = action_type,
+    terme = terme,
+    n_termes_final = length(final_terms),
     AIC = round(aic_col, 4),
     stringsAsFactors = FALSE
+  )
+}
+
+compare_step_aic <- function(data, response, terms, family = c("ols", "logit"),
+                             verbose = FALSE) {
+  family <- match.arg(family)
+
+  configs <- data.frame(
+    procedure = c(
+      "backward_full",
+      "forward_null",
+      "stepwise_null",
+      "stepwise_full"
+    ),
+    direction = c("backward", "forward", "both", "both"),
+    start = c("full", "null", "null", "full"),
+    stringsAsFactors = FALSE
+  )
+
+  fits <- vector("list", nrow(configs))
+
+  for (i in seq_len(nrow(configs))) {
+    fits[[i]] <- step_aic_select(
+      data = data,
+      response = response,
+      terms = terms,
+      family = family,
+      direction = configs$direction[i],
+      start = configs$start[i],
+      verbose = verbose,
+      contexte = paste("stepAIC", family, "sur", response)
+    )
+  }
+
+  comparison <- do.call(rbind, lapply(seq_along(fits), function(i) {
+    model_i <- fits[[i]]$model
+    terms_i <- fits[[i]]$terms
+
+    out <- data.frame(
+      procedure = configs$procedure[i],
+      n_termes = length(terms_i),
+      p = length(stats::coef(model_i)),
+      AIC = round(stats::AIC(model_i), 4),
+      formule = paste(deparse(stats::formula(model_i)), collapse = " "),
+      stringsAsFactors = FALSE
+    )
+
+    if (inherits(model_i, "lm") && !inherits(model_i, "glm")) {
+      out$R2 <- round(summary(model_i)$r.squared, 4)
+      out$R2_ajuste <- round(summary(model_i)$adj.r.squared, 4)
+    }
+
+    out
+  }))
+
+  best_idx <- order(comparison$AIC, comparison$p)[1]
+
+  log_all <- do.call(rbind, lapply(seq_along(fits), function(i) {
+    fits[[i]]$log
+  }))
+
+  list(
+    model = fits[[best_idx]]$model,
+    terms = fits[[best_idx]]$terms,
+    procedure = comparison$procedure[best_idx],
+    table = comparison,
+    log = log_all,
+    all = fits
   )
 }
 
@@ -403,54 +504,62 @@ cat(sprintf(
 # 6. Selection
 # =====================================================================
 
-cat("\n[3.6] Selection stepAIC backward sur M_full\n")
+cat("\n[3.6] Comparaison des procedures de selection AIC sur M_full\n")
 
-sel <- step_aic_backward(df, "G3", TERMS_FULL, family = "ols", verbose = TRUE)
+sel <- compare_step_aic(df, "G3", TERMS_FULL, family = "ols", verbose = FALSE)
 mod_sel <- sel$model
 terms_sel <- sel$terms
 log_sel <- sel$log
+table_sel_procedures <- sel$table
 
 cat(sprintf(
-  "  M_sel : %d termes retenus, AIC = %.2f\n",
+  "  M_sel : procedure retenue = %s | %d termes | AIC = %.2f\n",
+  sel$procedure,
   length(terms_sel),
   stats::AIC(mod_sel)
 ))
 
-cat("\n[3.6.1] Selection stepAIC backward sans G1\n")
+cat("\n[3.6.1] Comparaison des procedures de selection AIC sans G1\n")
 
-sel_sans_g1 <- step_aic_backward(df, "G3", TERMS_SANS_G1, family = "ols", verbose = FALSE)
+sel_sans_g1 <- compare_step_aic(df, "G3", TERMS_SANS_G1, family = "ols", verbose = FALSE)
 mod_sel_sans_g1 <- sel_sans_g1$model
 terms_sel_sans_g1 <- sel_sans_g1$terms
 log_sel_sans_g1 <- sel_sans_g1$log
+table_sel_sans_g1_procedures <- sel_sans_g1$table
 
 cat(sprintf(
-  "  Selectionne sans G1 : %d termes, AIC = %.2f\n",
+  "  Selectionne sans G1 : procedure retenue = %s | %d termes | AIC = %.2f\n",
+  sel_sans_g1$procedure,
   length(terms_sel_sans_g1),
   stats::AIC(mod_sel_sans_g1)
 ))
 
-cat("\n[3.6.2] Selection stepAIC backward sans G2\n")
+cat("\n[3.6.2] Comparaison des procedures de selection AIC sans G2\n")
 
-sel_sans_g2 <- step_aic_backward(df, "G3", TERMS_SANS_G2, family = "ols", verbose = FALSE)
+sel_sans_g2 <- compare_step_aic(df, "G3", TERMS_SANS_G2, family = "ols", verbose = FALSE)
 mod_sel_sans_g2 <- sel_sans_g2$model
 terms_sel_sans_g2 <- sel_sans_g2$terms
 log_sel_sans_g2 <- sel_sans_g2$log
+table_sel_sans_g2_procedures <- sel_sans_g2$table
 
 cat(sprintf(
-  "  Selectionne sans G2 : %d termes, AIC = %.2f\n",
+  "  Selectionne sans G2 : procedure retenue = %s | %d termes | AIC = %.2f\n",
+  sel_sans_g2$procedure,
   length(terms_sel_sans_g2),
   stats::AIC(mod_sel_sans_g2)
 ))
 
-cat("\n[3.8] Selection stepAIC backward hors G1, G2\n")
+cat("\n[3.8] Comparaison des procedures de selection AIC hors G1, G2\n")
 
-sel_hn <- step_aic_backward(df, "G3", TERMS_HORS_NOTES, family = "ols", verbose = FALSE)
+sel_hn <- compare_step_aic(df, "G3", TERMS_HORS_NOTES, family = "ols", verbose = FALSE)
 mod_sel_hn <- sel_hn$model
 terms_sel_hn <- sel_hn$terms
 log_sel_hn <- sel_hn$log
+table_sel_hn_procedures <- sel_hn$table
 
 cat(sprintf(
-  "  Selectionne hors notes : %d termes, AIC = %.2f\n",
+  "  Selectionne hors notes : procedure retenue = %s | %d termes | AIC = %.2f\n",
+  sel_hn$procedure,
   length(terms_sel_hn),
   stats::AIC(mod_sel_hn)
 ))
@@ -459,11 +568,11 @@ cat("\n[3.6.3] Tableau comparatif des six modeles lineaires\n")
 
 table_lin <- do.call(rbind, list(
   model_summary(mod_full, "Complet avec G1, G2"),
-  model_summary(mod_sel, "Selectionne avec G1, G2"),
-  model_summary(mod_sel_sans_g1, "Selectionne sans G1"),
-  model_summary(mod_sel_sans_g2, "Selectionne sans G2"),
+  model_summary(mod_sel, paste0("Selectionne avec G1, G2 - ", sel$procedure)),
+  model_summary(mod_sel_sans_g1, paste0("Selectionne sans G1 - ", sel_sans_g1$procedure)),
+  model_summary(mod_sel_sans_g2, paste0("Selectionne sans G2 - ", sel_sans_g2$procedure)),
   model_summary(mod_full_hn, "Complet sans G1, G2"),
-  model_summary(mod_sel_hn, "Selectionne sans G1, G2")
+  model_summary(mod_sel_hn, paste0("Selectionne sans G1, G2 - ", sel_hn$procedure))
 ))
 
 print(table_lin, row.names = FALSE)
@@ -564,17 +673,22 @@ plot_hist_residus <- ggplot2::ggplot(diag_df, ggplot2::aes(x = residu)) +
 cat("\n[3.9] Regression logistique pass/fail\n")
 
 formula_logit_full <- make_formula("passed", TERMS_FULL)
-mod_logit_full <- fit_model(formula_logit_full, df, family = "logit")
+mod_logit_full <- fit_model(
+  formula_logit_full, df, family = "logit",
+  contexte = "logit complet (M_logit_full)"
+)
 
 cat(sprintf("  Logit complet : AIC = %.2f\n", stats::AIC(mod_logit_full)))
 
-sel_logit <- step_aic_backward(df, "passed", TERMS_FULL, family = "logit", verbose = FALSE)
+sel_logit <- compare_step_aic(df, "passed", TERMS_FULL, family = "logit", verbose = FALSE)
 mod_logit_sel <- sel_logit$model
 terms_logit_sel <- sel_logit$terms
 log_logit_sel <- sel_logit$log
+table_logit_procedures <- sel_logit$table
 
 cat(sprintf(
-  "  Logit selectionne : %d termes, AIC = %.2f\n",
+  "  Logit selectionne : procedure retenue = %s | %d termes | AIC = %.2f\n",
+  sel_logit$procedure,
   length(terms_logit_sel),
   stats::AIC(mod_logit_sel)
 ))
@@ -674,19 +788,22 @@ write_csv(
   add_rownames_column(coef_table(mod_sel), "terme"),
   "3.6_coefficients_modele_selectionne.csv"
 )
-write_csv(log_sel, "3.6_log_stepAIC_avec_notes.csv")
+write_csv(table_sel_procedures, "3.6_comparaison_procedures_AIC_avec_notes.csv")
+write_csv(log_sel, "3.6_log_selection_AIC_avec_notes.csv")
 
 write_csv(
   add_rownames_column(coef_table(mod_sel_sans_g1), "terme"),
   "3.6.1_coefficients_modele_selectionne_sans_G1.csv"
 )
-write_csv(log_sel_sans_g1, "3.6.1_log_stepAIC_sans_G1.csv")
+write_csv(table_sel_sans_g1_procedures, "3.6.1_comparaison_procedures_AIC_sans_G1.csv")
+write_csv(log_sel_sans_g1, "3.6.1_log_selection_AIC_sans_G1.csv")
 
 write_csv(
   add_rownames_column(coef_table(mod_sel_sans_g2), "terme"),
   "3.6.2_coefficients_modele_selectionne_sans_G2.csv"
 )
-write_csv(log_sel_sans_g2, "3.6.2_log_stepAIC_sans_G2.csv")
+write_csv(table_sel_sans_g2_procedures, "3.6.2_comparaison_procedures_AIC_sans_G2.csv")
+write_csv(log_sel_sans_g2, "3.6.2_log_selection_AIC_sans_G2.csv")
 
 write_csv(table_lin, "3.6.3_comparaison_modeles_lineaires.csv")
 
@@ -702,7 +819,8 @@ write_csv(
   add_rownames_column(coef_table(mod_sel_hn), "terme"),
   "3.8_coefficients_modele_structurel.csv"
 )
-write_csv(log_sel_hn, "3.8_log_stepAIC_horsG12.csv")
+write_csv(table_sel_hn_procedures, "3.8_comparaison_procedures_AIC_horsG12.csv")
+write_csv(log_sel_hn, "3.8_log_selection_AIC_horsG12.csv")
 
 write_csv(
   add_rownames_column(or_table(mod_logit_full), "terme"),
@@ -712,7 +830,8 @@ write_csv(
   add_rownames_column(or_table(mod_logit_sel), "terme"),
   "3.9_odds_ratios_modele_selectionne.csv"
 )
-write_csv(log_logit_sel, "3.9_log_stepAIC_logistique.csv")
+write_csv(table_logit_procedures, "3.9_comparaison_procedures_AIC_logistique.csv")
+write_csv(log_logit_sel, "3.9_log_selection_AIC_logistique.csv")
 write_csv(as.data.frame.matrix(cm), "3.9_matrice_confusion_modele_selectionne.csv",
           row.names = TRUE)
 write_csv(table_logit, "3.9_comparaison_modeles_logistiques.csv")
