@@ -37,6 +37,8 @@ TERMS_QUALI <- c(
 
 TERMS_FULL <- c(TERMS_QUANT, TERMS_QUALI)
 TERMS_HORS_NOTES <- setdiff(TERMS_FULL, c("G1", "G2"))
+TERMS_SANS_G1 <- setdiff(TERMS_FULL, "G1")
+TERMS_SANS_G2 <- setdiff(TERMS_FULL, "G2")
 
 FACTOR_REFERENCES <- c(
   school = "GP",
@@ -414,6 +416,32 @@ cat(sprintf(
   stats::AIC(mod_sel)
 ))
 
+cat("\n[3.6.1] Selection stepAIC backward sans G1\n")
+
+sel_sans_g1 <- step_aic_backward(df, "G3", TERMS_SANS_G1, family = "ols", verbose = FALSE)
+mod_sel_sans_g1 <- sel_sans_g1$model
+terms_sel_sans_g1 <- sel_sans_g1$terms
+log_sel_sans_g1 <- sel_sans_g1$log
+
+cat(sprintf(
+  "  Selectionne sans G1 : %d termes, AIC = %.2f\n",
+  length(terms_sel_sans_g1),
+  stats::AIC(mod_sel_sans_g1)
+))
+
+cat("\n[3.6.2] Selection stepAIC backward sans G2\n")
+
+sel_sans_g2 <- step_aic_backward(df, "G3", TERMS_SANS_G2, family = "ols", verbose = FALSE)
+mod_sel_sans_g2 <- sel_sans_g2$model
+terms_sel_sans_g2 <- sel_sans_g2$terms
+log_sel_sans_g2 <- sel_sans_g2$log
+
+cat(sprintf(
+  "  Selectionne sans G2 : %d termes, AIC = %.2f\n",
+  length(terms_sel_sans_g2),
+  stats::AIC(mod_sel_sans_g2)
+))
+
 cat("\n[3.8] Selection stepAIC backward hors G1, G2\n")
 
 sel_hn <- step_aic_backward(df, "G3", TERMS_HORS_NOTES, family = "ols", verbose = FALSE)
@@ -427,11 +455,13 @@ cat(sprintf(
   stats::AIC(mod_sel_hn)
 ))
 
-cat("\n[3.6.3] Tableau comparatif des quatre modeles lineaires\n")
+cat("\n[3.6.3] Tableau comparatif des six modeles lineaires\n")
 
 table_lin <- do.call(rbind, list(
   model_summary(mod_full, "Complet avec G1, G2"),
   model_summary(mod_sel, "Selectionne avec G1, G2"),
+  model_summary(mod_sel_sans_g1, "Selectionne sans G1"),
+  model_summary(mod_sel_sans_g2, "Selectionne sans G2"),
   model_summary(mod_full_hn, "Complet sans G1, G2"),
   model_summary(mod_sel_hn, "Selectionne sans G1, G2")
 ))
@@ -578,34 +608,57 @@ cat("\n[3.10] Synthese finale et exports\n")
 synthese <- data.frame(
   modele = c(
     "Lineaire selectionne avec G1, G2",
-    "Lineaire selectionne sans G1, G2 (structurel)",
+    "Lineaire selectionne sans G1",
+    "Lineaire selectionne sans G2",
+    "Lineaire selectionne sans G1, G2",
     "Logistique selectionnee"
   ),
   p = c(
     length(stats::coef(mod_sel)),
+    length(stats::coef(mod_sel_sans_g1)),
+    length(stats::coef(mod_sel_sans_g2)),
     length(stats::coef(mod_sel_hn)),
     length(stats::coef(mod_logit_sel))
   ),
-  metrique_1_nom = c("R2_ajuste", "R2_ajuste", "Accuracy"),
+  metrique_1_nom = c("R2_ajuste", "R2_ajuste", "R2_ajuste", "R2_ajuste", "Accuracy"),
   metrique_1_valeur = c(
     round(summary(mod_sel)$adj.r.squared, 4),
+    round(summary(mod_sel_sans_g1)$adj.r.squared, 4),
+    round(summary(mod_sel_sans_g2)$adj.r.squared, 4),
     round(summary(mod_sel_hn)$adj.r.squared, 4),
     round(acc_sel, 4)
   ),
-  metrique_2_nom = c("AIC", "AIC", "AIC"),
+  metrique_2_nom = c("AIC", "AIC", "AIC", "AIC", "AIC"),
   metrique_2_valeur = c(
     round(stats::AIC(mod_sel), 2),
+    round(stats::AIC(mod_sel_sans_g1), 2),
+    round(stats::AIC(mod_sel_sans_g2), 2),
     round(stats::AIC(mod_sel_hn), 2),
     round(stats::AIC(mod_logit_sel), 2)
   ),
-  note = c("reference predictive", "facteurs amont", "classification pass/fail"),
+  note = c(
+    "reference predictive",
+    "sensibilite sans G1",
+    "sensibilite sans G2",
+    "facteurs amont",
+    "classification pass/fail"
+  ),
   stringsAsFactors = FALSE
 )
 
-max_len <- max(length(terms_sel), length(terms_sel_hn), length(terms_logit_sel))
+max_len <- max(
+  length(terms_sel),
+  length(terms_sel_sans_g1),
+  length(terms_sel_sans_g2),
+  length(terms_sel_hn),
+  length(terms_logit_sel)
+)
+
 terms_summary <- data.frame(
-  modele_lineaire_avec_notes = pad_terms(terms_sel, max_len),
-  modele_lineaire_sans_notes = pad_terms(terms_sel_hn, max_len),
+  modele_lineaire_avec_G1_G2 = pad_terms(terms_sel, max_len),
+  modele_lineaire_sans_G1 = pad_terms(terms_sel_sans_g1, max_len),
+  modele_lineaire_sans_G2 = pad_terms(terms_sel_sans_g2, max_len),
+  modele_lineaire_sans_G1_G2 = pad_terms(terms_sel_hn, max_len),
   modele_logistique_selectionne = pad_terms(terms_logit_sel, max_len),
   stringsAsFactors = FALSE
 )
@@ -622,6 +675,19 @@ write_csv(
   "3.6_coefficients_modele_selectionne.csv"
 )
 write_csv(log_sel, "3.6_log_stepAIC_avec_notes.csv")
+
+write_csv(
+  add_rownames_column(coef_table(mod_sel_sans_g1), "terme"),
+  "3.6.1_coefficients_modele_selectionne_sans_G1.csv"
+)
+write_csv(log_sel_sans_g1, "3.6.1_log_stepAIC_sans_G1.csv")
+
+write_csv(
+  add_rownames_column(coef_table(mod_sel_sans_g2), "terme"),
+  "3.6.2_coefficients_modele_selectionne_sans_G2.csv"
+)
+write_csv(log_sel_sans_g2, "3.6.2_log_stepAIC_sans_G2.csv")
+
 write_csv(table_lin, "3.6.3_comparaison_modeles_lineaires.csv")
 
 write_csv(shapiro_table, "3.7_test_normalite_shapiro.csv")
