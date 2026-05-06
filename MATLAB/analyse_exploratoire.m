@@ -104,8 +104,15 @@ fprintf('  -> 00_Global_Summary.csv exporte.\n');
 
 % Signaler les G3 = 0
 n_zero = sum(df.(target) == 0);
-fprintf('  -> Observations avec G3 = 0 : %d / %d (%.1f%%)\n\n', ...
+fprintf('  -> Observations avec G3 = 0 : %d / %d (%.1f%%)\n', ...
     n_zero, n_obs, 100 * n_zero / n_obs);
+
+zero_vars = {'G1', 'G2', 'failures', 'absences', 'school', 'sex', 'higher'};
+zero_vars = intersect(zero_vars, varNames, 'stable');
+
+G3ZeroCases = df(df.G3 == 0, zero_vars);
+writetable(G3ZeroCases, fullfile(output_dir, '01_G3_Zero_Cases.csv'));
+fprintf('  -> 01_G3_Zero_Cases.csv exporte.\n\n');
 
 
 %% 3. DISTRIBUTION DE LA CIBLE (G3)
@@ -139,6 +146,7 @@ legend([hMean, hMed], 'Location', 'northeast');
 
 xlim([-0.5 21]);
 SaveFigure(fig, fullfile(output_dir, '01_G3_Distribution.png'));
+close(fig);
 
 % Stats descriptives de G3
 target_stats = table(n_obs, mu_g3, md_g3, std(g3, 'omitnan'), ...
@@ -236,6 +244,7 @@ for i = 1:size(corr_mat, 1)
 end
 SaveFigure(fig, fullfile(output_dir, '03_Correlation_Matrix.png'), ...
     'Resolution', 300);
+close(fig);
 
 % Export CSV
 corr_tbl = array2table(corr_mat, 'VariableNames', num_cols, ...
@@ -264,6 +273,7 @@ for j = 1:length(cat_cols)
         xtickangle(30);
     end
     SaveFigure(fig, fullfile(output_dir, sprintf('04_Box_%s.png', feat)));
+    close(fig);
 
     % Stats par modalite
     [G, cats_seg] = findgroups(df.(feat));
@@ -315,6 +325,7 @@ for j = 1:length(num_cols)
     ylabel('G3');
     title(sprintf('G3 vs %s', feat));
     SaveFigure(fig, fullfile(output_dir, sprintf('05_Scatter_%s.png', feat)));
+    close(fig);
 
     tmp = table({feat}, r, pval, p(1), ...
         'VariableNames', {'Feature', 'Corr_G3', 'P_Value', 'Slope'});
@@ -351,6 +362,7 @@ for s = 1:length(segments)
     xlim([-0.5 21]);
     hold off;
     SaveFigure(fig, fullfile(output_dir, sprintf('06_Hist_G3_by_%s.png', seg)));
+    close(fig);
 
     % Boxplots cote a cote pour les variables numeriques cles
     key_vars = {'G1', 'G2', 'studytime', 'failures', 'absences', 'age'};
