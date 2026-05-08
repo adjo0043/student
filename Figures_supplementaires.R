@@ -297,8 +297,8 @@ or_df$truncated <- or_df$OR_high > TRUNC | or_df$OR_low < 1 / TRUNC
 or_df <- or_df[order(or_df$OR), ]
 or_df$label <- factor(or_df$label, levels = or_df$label)
 or_df$significatif <- factor(
-  ifelse(or_df$p_value < 0.05, "p < 0.05", "p >= 0.05"),
-  levels = c("p < 0.05", "p >= 0.05")
+  ifelse(or_df$OR_low > 1 | or_df$OR_high < 1, "IC exclut 1", "IC contient 1"),
+  levels = c("IC exclut 1", "IC contient 1")
 )
 
 plot_or <- ggplot2::ggplot(or_df, ggplot2::aes(y = label)) +
@@ -443,7 +443,9 @@ log_sel <- subset(log_sel, procedure == best_proc & is.finite(AIC))
 if (nrow(log_sel) == 0) {
   stop("Aucune iteration AIC valide pour la procedure retenue : ", best_proc)
 }
-
+n_obs <- nrow(df)
+aic_offset <- n_obs * (1 + log(2 * pi)) + 2
+log_sel$AIC <- log_sel$AIC + aic_offset 
 last <- nrow(log_sel)
 aic_labels <- log_sel[c(1, last), ]
 aic_labels$label <- sprintf("AIC = %.0f", aic_labels$AIC)
