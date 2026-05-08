@@ -21,6 +21,8 @@ suppressPackageStartupMessages({
 })
 set.seed(42)
 options(stringsAsFactors = FALSE)
+
+# Définition des groupes de variables et références pour les facteurs
 TERMS_QUANT <- c(
   "G1", "G2", "age", "Medu", "Fedu", "traveltime", "studytime",
   "failures", "famrel", "freetime", "goout", "Dalc", "Walc",
@@ -36,40 +38,25 @@ TERMS_HORS_NOTES <- setdiff(TERMS_FULL, c("G1", "G2"))
 TERMS_SANS_G1 <- setdiff(TERMS_FULL, "G1")
 TERMS_SANS_G2 <- setdiff(TERMS_FULL, "G2")
 FACTOR_REFERENCES <- c(
-  school = "GP",
-  sex = "F",
-  address = "R",
-  famsize = "GT3",
-  Pstatus = "T",
-  Mjob = "other",
-  Fjob = "other",
-  reason = "course",
-  guardian = "mother",
-  schoolsup = "no",
-  famsup = "no",
-  paid = "no",
-  activities = "no",
-  nursery = "no",
-  higher = "no",
-  internet = "no",
-  romantic = "no"
+  school = "GP", sex = "F", address = "R", famsize = "GT3", Pstatus = "T",
+  Mjob = "other", Fjob = "other", reason = "course", guardian = "mother",
+  schoolsup = "no", famsup = "no", paid = "no", activities = "no",
+  nursery = "no", higher = "no", internet = "no", romantic = "no"
 )
-
+#' Localise le fichier de données d'entrée dans l'environnement local.
+#' 
+#' Recherche le chemin du dataset Student Performance via les variables 
+#' d'environnement ou les noms de fichiers standards.
+#' 
+#' @return Une chaîne de caractères contenant le chemin valide du fichier.
+#' @export
 resolve_input_path <- function() {
-  candidates <- c(
-    Sys.getenv("STUDENT_DATA_PATH", unset = ""),
-    Sys.getenv("INPUT_PATH", unset = ""),
-    "student-mat.csv",
-    "studentmat.csv"
-  )
+  candidates <- c(Sys.getenv("STUDENT_DATA_PATH", unset = ""),
+                  Sys.getenv("INPUT_PATH", unset = ""),
+                  "student-mat.csv", "studentmat.csv")
   candidates <- candidates[nzchar(candidates)]
   found <- candidates[file.exists(candidates)]
-  if (length(found) == 0) {
-    stop(
-      "Fichier de donnees introuvable. ",
-      "Definir STUDENT_DATA_PATH ou INPUT_PATH, ou placer student-mat.csv ici."
-    )
-  }
+  if (length(found) == 0) stop("Fichier de données introuvable.")
   found[1]
 }
 INPUT_PATH <- resolve_input_path()
@@ -99,36 +86,38 @@ if (length(missing_cols) > 0) {
 # =====================================================================
 
 df$passed <- as.integer(df$G3 >= 10)
-
-cat(sprintf(
-  "[Preparation] Reussite : %d admis (%.1f%%) sur %d eleves.\n",
-  sum(df$passed),
-  mean(df$passed) * 100,
-  n_obs
+cat(sprintf("[Preparation] Reussite : %d admis (%.1f%%) sur %d eleves.\n",
+  sum(df$passed),mean(df$passed) * 100,n_obs
 ))
 
 for (var in TERMS_QUALI) {
   df[[var]] <- factor(df[[var]])
 }
-
 for (var in names(FACTOR_REFERENCES)) {
   ref <- FACTOR_REFERENCES[[var]]
-
   if (!ref %in% levels(df[[var]])) {
     stop(sprintf("Reference '%s' absente pour la variable '%s'.", ref, var))
   }
-
   df[[var]] <- stats::relevel(df[[var]], ref = ref)
 }
 
 # =====================================================================
 # 4. Fonctions utilitaires
 # =====================================================================
-
+#' Génère une formule symbolique pour les modèles statistiques.
+#' 
+#' Automatise la création d'objets `formula` à partir d'un vecteur de noms.
+#' 
+#' @param response Nom de la variable cible.
+#' @param terms Vecteur de caractères contenant les prédicteurs.
+#' @return Un objet de classe `formula`.
 make_formula <- function(response, terms) {
   stats::as.formula(paste(response, "~", paste(terms, collapse = " + ")))
 }
-
+#' Définit la charte graphique standard pour les rapports.
+#' Applique un thème noir et blanc  avec une police sérif.
+#' 
+#' @return Un objet de thème `ggplot2`.
 theme_report <- function() {
   ggplot2::theme_bw(base_size = 10, base_family = "serif") +
     ggplot2::theme(
@@ -136,97 +125,99 @@ theme_report <- function() {
       panel.grid.minor = ggplot2::element_blank()
     )
 }
-
+#' Gère les avertissements de séparation parfaite en logit.
+#' 
+#' Intercepte et documente les cas où les probabilités prédites atteignent 0 ou 1.
+#' 
+#' @param expr Expression R à évaluer (typiquement un appel à `glm`).
+#' @param contexte Description de l'étape pour le journal de bord.
+#' @return Le résultat de l'expression évaluée.
 suppress_logit_boundary_warning <- function(expr, contexte = "modele logit") {
   warns <- character(0)
-  result <- withCallingHandlers(
-    expr,
-    warning = function(w) {
-      msg <- conditionMessage(w)
-      boundary_warning <- grepl("^glm\\.fit: .*0 (or|ou) 1", msg)
-
-      if (boundary_warning) {
-        warns <<- c(warns, msg)
-        invokeRestart("muffleWarning")
-      }
+  result <- withCallingHandlers(expr, warning = function(w) {
+    if (grepl("^glm\\.fit: .*0 (or|ou) 1", conditionMessage(w))) {
+      warns <<- c(warns, conditionMessage(w))
+      invokeRestart("muffleWarning")
     }
-  )
-
-  if (length(warns) > 0L) {
-    cat(sprintf(
-      "  [info] %s : %d avertissement(s) glm.fit signalent que certaines\n         probabilites predites atteignent 0 ou 1.\n",
-      contexte, length(warns)
-    ))
-  }
-
+  })
+  if (length(warns) > 0L) cat(sprintf("  [info] %s : %d avertissements de séparation.\n", 
+                                     contexte, length(warns)))
   result
 }
-
-fit_model <- function(formula, data, family = c("ols", "logit"),
-                     contexte = "modele logit") {
+#' Ajuste un modèle linéaire ou logistique avec gestion d'erreurs.
+#' 
+#' Fournit une interface unifiée pour l'estimation OLS ou logistique.
+#' 
+#' @param formula Formule du modèle.
+#' @param data Données d'entraînement.
+#' @param family "ols" pour `lm` ou "logit" pour `glm`.
+#' @param contexte Identifiant pour les messages d'erreur.
+#' @return L'objet modèle ajusté.
+fit_model <- function(formula, data, family = c("ols", "logit"), contexte = "modele") {
   family <- match.arg(family)
-  fit_args <- list(formula = formula, data = data)
   if (family == "ols") {
-    return(do.call("lm", fit_args, envir = asNamespace("stats")))
+    return(do.call(stats::lm, list(formula = formula, data = data)))
   }
-  fit_args$family <- stats::binomial(link = "logit")
   suppress_logit_boundary_warning(
-    do.call("glm", fit_args, envir = asNamespace("stats")),
-    contexte = contexte
+    do.call(stats::glm, list(formula = formula, data = data,
+                             family = binomial(link = "logit"))),
+    contexte
   )
 }
 
+#' Exécute une sélection de modèle basée sur le critère AIC.
+#' 
+#' @param data Données d'entraînement.
+#' @param response Variable cible.
+#' @param terms Ensemble des prédicteurs candidats.
+#' @param family Type de modèle ("ols" ou "logit").
+#' @param direction Type de sélection ("backward", "forward", "both").
+#' @param start Point de départ ("full" ou "null").
+#' @param verbose Booléen pour l'affichage des traces.
+#' @param contexte Chaîne de caractères pour identifier l'étape dans les logs.
+#' @return Une liste contenant le modèle final, les termes, le log, la direction et le départ.
 step_aic_select <- function(data, response, terms, family = c("ols", "logit"),
                             direction = c("backward", "forward", "both"),
                             start = c("full", "null"), verbose = FALSE,
                             contexte = "stepAIC logit") {
-  family <- match.arg(family)
-  direction <- match.arg(direction)
-  start <- match.arg(start)
-
-  full_formula <- make_formula(response, terms)
-  null_formula <- stats::as.formula(paste(response, "~ 1"))
-
-  start_formula <- if (start == "full") full_formula else null_formula
+  
+  family <- match.arg(family); direction <- match.arg(direction); start <- match.arg(start)
+  
+  f_full <- make_formula(response, terms)
+  f_null <- stats::as.formula(paste(response, "~ 1"))
+  
   start_model <- fit_model(
-    start_formula, data, family = family,
+    if (start == "full") f_full else f_null, data, family = family,
     contexte = paste(contexte, "-", direction, start, "- modele de depart")
   )
-
-  trace_value <- if (isTRUE(verbose)) 1 else 0
-  scope_value <- list(lower = null_formula, upper = full_formula)
-
-  final_model <- if (family == "logit") {
-    suppress_logit_boundary_warning(
-      MASS::stepAIC(
-        start_model,
-        scope = scope_value,
-        direction = direction,
-        trace = trace_value
-      ),
-      contexte = paste(contexte, "-", direction, start, "- iterations")
-    )
-  } else {
-    MASS::stepAIC(
-      start_model,
-      scope = scope_value,
-      direction = direction,
-      trace = trace_value
-    )
+  
+  run_step <- function() {
+    MASS::stepAIC(start_model, scope = list(lower = f_null, upper = f_full),
+                  direction = direction, trace = +verbose)
   }
-
+  
+  final_model <- if (family == "logit") {
+    suppress_logit_boundary_warning(run_step(), paste(contexte, "-", direction, start, "- iterations"))
+  } else {
+    run_step()
+  }
+  
   list(
     model = final_model,
     terms = attr(stats::terms(final_model), "term.labels"),
-    log = clean_step_log(
-      final_model,
-      procedure = paste(direction, start, sep = "_")
-    ),
+    log = clean_step_log(final_model, paste(direction, start, sep = "_")),
     direction = direction,
     start = start
   )
 }
 
+#' Nettoie et structure le journal de la sélection pas-à-pas.
+#' 
+#' Transforme l'objet `anova` du modèle en un data frame lisible.
+#' 
+#' @param model Modèle issu de `stepAIC`.
+#' @param procedure Nom de la méthode employée.
+#' @return Un data frame retraçant les itérations.
 clean_step_log <- function(model, procedure) {
   anova_table <- model$anova
   final_terms <- attr(stats::terms(model), "term.labels")
@@ -269,75 +260,86 @@ clean_step_log <- function(model, procedure) {
     stringsAsFactors = FALSE
   )
 }
-
-compare_step_aic <- function(data, response, terms, family = c("ols", "logit"),
+#' Compare quatre procédures de sélection AIC pour assurer la stabilité.
+#' 
+#' Évalue les approches backward, forward et stepwise (depuis le modèle nul ou complet)
+#' pour identifier le meilleur compromis entre ajustement et parcimonie. 
+#' En cas d'égalité stricte, la sélection cascade : AIC minimal -> R2 ajusté maximal -> p minimal.
+#' 
+#' @param data Données d'entraînement.
+#' @param response Variable cible (chaîne de caractères).
+#' @param terms Ensemble des prédicteurs candidats.
+#' @param family Type de modèle ("ols" ou "logit").
+#' @param verbose Booléen pour l'affichage des traces d'exécution.
+#' @return Une liste contenant le meilleur modèle, ses termes, la procédure gagnante, 
+#'   le tableau comparatif des procédures, les logs fusionnés et tous les modèles ajustés.
+#' @export
+compare_step_aic <- function(data, response, terms, family = c("ols", "logit"), 
                              verbose = FALSE) {
   family <- match.arg(family)
-
+  
   configs <- data.frame(
-    procedure = c(
-      "backward_full",
-      "forward_null",
-      "stepwise_null",
-      "stepwise_full"
-    ),
+    procedure = c("backward_full", "forward_null", "stepwise_null", "stepwise_full"),
     direction = c("backward", "forward", "both", "both"),
     start = c("full", "null", "null", "full"),
     stringsAsFactors = FALSE
   )
-
-  fits <- vector("list", nrow(configs))
-
-  for (i in seq_len(nrow(configs))) {
-    fits[[i]] <- step_aic_select(
-      data = data,
-      response = response,
-      terms = terms,
-      family = family,
-      direction = configs$direction[i],
-      start = configs$start[i],
-      verbose = verbose,
-      contexte = paste("stepAIC", family, "sur", response)
+  
+  # Exécution concise des 4 configurations via lapply
+  fits <- lapply(seq_len(nrow(configs)), function(i) {
+    step_aic_select(
+      data = data, response = response, terms = terms, family = family,
+      direction = configs$direction[i], start = configs$start[i],
+      verbose = verbose, contexte = paste("stepAIC", family, "sur", response)
     )
-  }
-
+  })
+  
+  # Construction du tableau comparatif
   comparison <- do.call(rbind, lapply(seq_along(fits), function(i) {
-    model_i <- fits[[i]]$model
-    terms_i <- fits[[i]]$terms
-
+    m <- fits[[i]]$model
     out <- data.frame(
       procedure = configs$procedure[i],
-      n_termes = length(terms_i),
-      p = length(stats::coef(model_i)),
-      AIC = round(stats::AIC(model_i), 4),
-      formule = paste(deparse(stats::formula(model_i)), collapse = " "),
+      n_termes = length(fits[[i]]$terms),
+      p = length(stats::coef(m)),
+      AIC = round(stats::AIC(m), 4),
+      formule = paste(deparse(stats::formula(m)), collapse = " "),
       stringsAsFactors = FALSE
     )
-
-    if (inherits(model_i, "lm") && !inherits(model_i, "glm")) {
-      out$R2 <- round(summary(model_i)$r.squared, 4)
-      out$R2_ajuste <- round(summary(model_i)$adj.r.squared, 4)
+    
+    # Ajout conditionnel des R2 pour la famille OLS
+    if (inherits(m, "lm") && !inherits(m, "glm")) {
+      out$R2 <- round(summary(m)$r.squared, 4)
+      out$R2_ajuste <- round(summary(m)$adj.r.squared, 4)
     }
-
     out
   }))
-
-  best_idx <- order(comparison$AIC, comparison$p)[1]
-
-  log_all <- do.call(rbind, lapply(seq_along(fits), function(i) {
-    fits[[i]]$log
-  }))
-
+  
+  # Sélection du meilleur index par ordre lexicographique complet
+  best_idx <- if ("R2_ajuste" %in% names(comparison)) {
+    # 1. AIC (min) -> 2. R2_ajuste (max) -> 3. p (min)
+    order(comparison$AIC, -comparison$R2_ajuste, comparison$p)[1]
+  } else {
+    # 1. AIC (min) -> 2. p (min)
+    order(comparison$AIC, comparison$p)[1]
+  }
+  
+  # Retour structuré (correction de la syntaxe d'extraction du log)
   list(
     model = fits[[best_idx]]$model,
     terms = fits[[best_idx]]$terms,
     procedure = comparison$procedure[best_idx],
     table = comparison,
-    log = log_all,
+    log = do.call(rbind, lapply(fits, function(x) x$log)),
     all = fits
   )
 }
 
+#' Calcule les statistiques des coefficients avec intervalles de confiance.
+#' Formate les sorties de régression pour une insertion directe en tableau.
+#' 
+#' @param model Objet modèle.
+#' @param alpha Seuil de risque.
+#' @return Un data frame des coefficients formatés.
 coef_table <- function(model, alpha = 0.05) {
   coef_summary <- summary(model)$coefficients
   ci <- suppressMessages(stats::confint.default(model, level = 1 - alpha))
@@ -356,7 +358,12 @@ coef_table <- function(model, alpha = 0.05) {
   names(out)[3] <- stat_name
   round(out, 4)
 }
-
+#' Calcule les rapports de cotes (Odds Ratios) pour le modèle logit.
+#' 
+#' Exponentie les coefficients pour faciliter l'interprétation.
+#' 
+#' @param model Modèle logistique.
+#' @return Un data frame avec OR et intervalles de confiance.
 or_table <- function(model, alpha = 0.05) {
   coef_summary <- summary(model)$coefficients
   ci <- suppressMessages(stats::confint.default(model, level = 1 - alpha))
@@ -402,7 +409,14 @@ model_summary <- function(model, name) {
     data.frame(AIC = round(stats::AIC(model), 2), stringsAsFactors = FALSE)
   )
 }
-
+#' Calcule la précision globale de classification.
+#' 
+#' Évalue la performance binaire sur un seuil de probabilité donné.
+#' 
+#' @param model Modèle logit.
+#' @param data Données à tester.
+#' @param threshold Seuil de décision (défaut 0.5).
+#' @return Le taux de classification correcte.
 accuracy <- function(model, data, target = "passed", threshold = 0.5) {
   proba <- stats::predict(model, newdata = data, type = "response")
   pred <- as.integer(proba >= threshold)
@@ -419,29 +433,23 @@ pad_terms <- function(x, n) {
   c(x, rep(NA_character_, n - length(x)))
 }
 
+#' Sauvegarde une figure au format
+#' 
+#' Configure les dimensions et la résolution pour un rendu académique.
+#' 
+#' @param fname Nom du fichier.
+#' @param plot_object Graphique ggplot2.
 save_pdf_figure <- function(fname, plot_object) {
   if (exists("SaveFigure", mode = "function")) {
-    return(SaveFigure(
-      plot_object = plot_object,
-      fname = fname,
-      folder = FIG_DIR,
-      dpi = FIG_DPI,
-      width_cm = FIG_WIDTH_CM,
-      height_cm = FIG_HEIGHT_CM,
-      apply_theme = FALSE
-    ))
+    return(SaveFigure(plot_object = plot_object,fname = fname,
+      folder = FIG_DIR,dpi = FIG_DPI,width_cm = FIG_WIDTH_CM,
+      height_cm = FIG_HEIGHT_CM,apply_theme = FALSE))
   }
-
   full_path <- file.path(FIG_DIR, basename(fname))
-  ggplot2::ggsave(
-    filename = full_path,
-    plot = plot_object,
-    width = FIG_WIDTH_CM / 2.54,
-    height = FIG_HEIGHT_CM / 2.54,
-    units = "in",
-    device = "pdf"
+  ggplot2::ggsave(filename = full_path,
+    plot = plot_object,width = FIG_WIDTH_CM / 2.54,
+    height = FIG_HEIGHT_CM / 2.54,units = "in",device = "pdf"
   )
-
   invisible(full_path)
 }
 
