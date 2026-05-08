@@ -164,7 +164,6 @@ fit_model <- function(formula, data, family = c("ols", "logit"), contexte = "mod
     contexte
   )
 }
-
 #' Exécute une sélection de modèle basée sur le critère AIC.
 #' 
 #' @param data Données d'entraînement.
@@ -363,6 +362,7 @@ coef_table <- function(model, alpha = 0.05) {
 #' Exponentie les coefficients pour faciliter l'interprétation.
 #' 
 #' @param model Modèle logistique.
+#' @param alpha Seuil de risque.
 #' @return Un data frame avec OR et intervalles de confiance.
 or_table <- function(model, alpha = 0.05) {
   coef_summary <- summary(model)$coefficients
@@ -382,6 +382,11 @@ or_table <- function(model, alpha = 0.05) {
   round(out, 4)
 }
 
+#' Résume les indicateurs principaux d'un modèle ajusté.
+#'
+#' @param model Objet modèle linéaire ou logistique.
+#' @param name Nom du modèle à afficher.
+#' @return Un data frame contenant les métriques de synthèse.
 model_summary <- function(model, name) {
   common_cols <- data.frame(
     modele = name,
@@ -415,6 +420,7 @@ model_summary <- function(model, name) {
 #' 
 #' @param model Modèle logit.
 #' @param data Données à tester.
+#' @param target Nom de la variable binaire observée.
 #' @param threshold Seuil de décision (défaut 0.5).
 #' @return Le taux de classification correcte.
 accuracy <- function(model, data, target = "passed", threshold = 0.5) {
@@ -424,21 +430,32 @@ accuracy <- function(model, data, target = "passed", threshold = 0.5) {
   mean(pred == data[[target]])
 }
 
+#' Ajoute les noms de lignes comme première colonne.
+#'
+#' @param x Objet tabulaire à convertir en data frame.
+#' @param row_label Nom de la colonne créée.
+#' @return Un data frame avec les anciens noms de lignes.
 add_rownames_column <- function(x, row_label = "terme") {
   out <- data.frame(x, check.names = FALSE)
   cbind(setNames(data.frame(rownames(out), stringsAsFactors = FALSE), row_label), out)
 }
 
+#' Complète un vecteur de termes avec des valeurs manquantes.
+#'
+#' @param x Vecteur de caractères à compléter.
+#' @param n Longueur cible.
+#' @return Un vecteur de longueur `n`.
 pad_terms <- function(x, n) {
   c(x, rep(NA_character_, n - length(x)))
 }
 
-#' Sauvegarde une figure au format
+#' Sauvegarde une figure au format PDF.
 #' 
 #' Configure les dimensions et la résolution pour un rendu académique.
 #' 
 #' @param fname Nom du fichier.
 #' @param plot_object Graphique ggplot2.
+#' @return Le chemin du fichier sauvegardé, invisiblement.
 save_pdf_figure <- function(fname, plot_object) {
   if (exists("SaveFigure", mode = "function")) {
     return(SaveFigure(plot_object = plot_object,fname = fname,
@@ -453,6 +470,12 @@ save_pdf_figure <- function(fname, plot_object) {
   invisible(full_path)
 }
 
+#' Écrit un tableau CSV dans le dossier des sorties.
+#'
+#' @param x Objet tabulaire à exporter.
+#' @param fname Nom du fichier CSV.
+#' @param row.names Booléen transmis à `write.csv`.
+#' @return Aucun retour explicite.
 write_csv <- function(x, fname, row.names = FALSE) {
   utils::write.csv(x, file.path(TAB_DIR, fname), row.names = row.names)
 }
