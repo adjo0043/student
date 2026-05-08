@@ -1,25 +1,23 @@
 % =======================================================================
 % ANALYSE EXPLORATOIRE - Performance des etudiants (Math)
 % Dataset : student-mat.csv (UCI / P. Cortez)
-% Variable cible : G3 (note finale, 0-20)
-%
-%
-% Structure :
-%   1. Chargement et preparation
-%   2. Resume global du dataset
-%   3. Distribution de la cible G3
-%   4. Resumes statistiques par theme
-%   5. Matrice de correlation
-%   6. Analyse bivariee : predicteurs vs G3
-%   7. Comparaisons de sous-echantillons
-%   8. Scatter matrix des predicteurs cles
-%
-% Sortie : dossier 'AnalyseExploratoire/' (figures PNG + tableaux CSV)
 % Auteur : Djousse Tedongmene Alex
 % =======================================================================
 clear; close all; clc;
 
 %% 1. CHARGEMENT ET PREPARATION
+% =======================================================================
+% Description : 
+%   Charge les données brutes et effectue le typage des colonnes.
+%
+% Motivation :
+%   Les modèles de régression et les fonctions de visualisation requièrent 
+%   une distinction stricte entre variables quantitatives (double) et 
+%   qualitatives (categorical) pour garantir la justesse des calculs.
+%
+% Sortie : 
+%   Table `df` typée, listes `num_cols` et `cat_cols`.
+% =======================================================================
 
 % Detection du fichier
 if exist('studentmat.csv', 'file')
@@ -78,6 +76,19 @@ green_color = [0.17 0.63 0.17];
 
 
 %% 2. RESUME GLOBAL DU DATASET
+% =====================================================================
+% Description : 
+%   Génère un tableau de synthèse recensant les types, le nombre de 
+%   valeurs uniques et les valeurs manquantes pour chaque variable.
+%
+% Motivation :
+%   L'absence de valeurs manquantes doit être formellement vérifiée 
+%   avant de valider qu'aucune stratégie d'imputation n'est requise.
+%   L'identification des élèves à G3 = 0 isole la masse anormale cible.
+%
+% Sortie : 
+%   Fichiers '00_Global_Summary.csv' et '01_G3_Zero_Cases.csv'.
+% =====================================================================
 fprintf('--- Resume global du dataset ---\n');
 GlobalSummary = table('Size', [length(varNames) 4], ...
     'VariableTypes', {'cell', 'cell', 'double', 'double'}, ...
@@ -116,8 +127,18 @@ fprintf('  -> 01_G3_Zero_Cases.csv exporte.\n\n');
 
 
 %% 3. DISTRIBUTION DE LA CIBLE (G3)
-
-% 3. DISTRIBUTION DE LA CIBLE (G3)
+% ========================================================================
+% Description : 
+%   Trace l'histogramme de la note finale et calcule ses moments spatiaux.
+%
+% Motivation :
+%   La visualisation de l'asymétrie de la distribution de G3 est le 
+%   prérequis mathématique pour justifier que les résidus d'une 
+%   régression linéaire (OLS) ne suivront pas une loi normale.
+%
+% Sortie : 
+%   Figure '01_G3_Distribution.png' et '01_G3_Stats.csv'.
+% =======================================================================
 fprintf('--- Distribution de G3 ---\n');
 
 g3 = df.(target);
@@ -157,7 +178,16 @@ fprintf('  -> Figures et CSV de G3 exportes.\n');
 
 
 %% 4. RESUMES STATISTIQUES PAR THEME
-
+% =====================================================================
+% Description : 
+%   Calcule les mesures de tendance centrale, dispersion et quantiles 
+%   par regroupement thématique (Académique, Démographique, Mode de vie).
+%
+% Motivation :
+%   Segmenter l'exploration par thème permet d'isoler les caractéristiques 
+%   structurelles asymétriques (ex: `failures`, `absences`) avant leur 
+%   incorporation dans un modèle prédictif commun.
+% =====================================================================
 fprintf('\n--- Resumes par theme ---\n');
 themeNames = fieldnames(themes);
 for t = 1:length(themeNames)
@@ -209,7 +239,16 @@ for t = 1:length(themeNames)
 end
 
 %% 5. MATRICE DE CORRELATION
-
+% =====================================================================
+% Description : 
+%   Génère et trace la matrice des corrélations linéaires de Pearson 
+%   entre toutes les variables quantitatives.
+%
+% Motivation :
+%   Détecter la multicolinéarité sévère (notamment entre G1 et G2) est 
+%   impératif pour anticiper l'instabilité de la variance des 
+%   estimateurs (inflation) lors des régressions multiples.
+% =====================================================================
 fprintf('\n--- Matrice de correlation ---\n');
 num_data = df(:, num_cols);
 corr_mat = corr(table2array(num_data), 'Rows', 'pairwise');
@@ -255,7 +294,15 @@ fprintf('  -> Matrice de correlation exportee.\n');
 
 
 %% 6. ANALYSE BIVARIEE : predicteurs vs G3
-
+% =====================================================================
+% Description : 
+%   Visualise les associations marginales entre chaque prédicteur et 
+%   la variable cible via des boîtes à moustaches et des nuages de points.
+%
+% Motivation :
+%   Évaluer le pouvoir explicatif brut individuel avant que les effets ne 
+%   soient conditionnés par d'autres variables dans un modèle complet.
+% =====================================================================
 fprintf('\n--- Analyse bivariee ---\n');
 % Variables categorielles vs G3 (boxplots)
 biv_cat = table();
@@ -336,7 +383,16 @@ fprintf('  -> Scatterplots et CSV numeriques exportes.\n');
 
 
 %% 7. COMPARAISONS DE SOUS-ECHANTILLONS
-
+% =====================================================================
+% Description : 
+%   Croise la variable de performance finale avec les attributs 
+%   catégoriels majeurs (sexe, localisation, souhait d'études supérieures).
+%
+% Motivation :
+%   Mettre en évidence les biais de représentativité dans la cohorte
+%   qui affecteront directement l'erreur standard des estimateurs par 
+%   sous-groupe lors des régressions.
+% =====================================================================
 fprintf('\n--- Comparaisons de sous-echantillons ---\n');
 segments = {'sex', 'school', 'address', 'higher', ...
             'romantic', 'internet', 'Pstatus'};
@@ -423,7 +479,16 @@ fprintf(' Tableau comparatif exporte.\n');
 
 
 %% 8. SCATTER MATRIX DES PREDICTEURS CLES
-
+% =====================================================================
+% Description : 
+%   Produit une matrice de nuages de points pour les 5 variables les 
+%   plus corrélées avec G3, ainsi que G3 elle-même.
+%
+% Motivation :
+%   L'inspection visuelle conjointe révèle des structures non-linéaires, 
+%   la discrétisation stricte de certaines échelles (ex: failures), et
+%   aide à décider s'il faut inclure des termes polynomiaux d'interaction.
+% =====================================================================
 fprintf('\n--- Scatter matrix ---\n');
 % Variables les plus correlees a G3 (en valeur absolue, hors G3)
 g3_idx = find(strcmp(num_cols, 'G3'));
