@@ -321,7 +321,10 @@ plot_or <- ggplot2::ggplot(or_df, ggplot2::aes(y = label)) +
     limits = c(1 / TRUNC, TRUNC),
     breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000)
   ) +
-  ggplot2::scale_color_manual(NULL, values = c("p < 0.05" = "firebrick", "p >= 0.05" = "gray40")) +
+  ggplot2::scale_color_manual(
+    NULL,
+    values = c("IC exclut 1" = "firebrick", "IC contient 1" = "gray40")
+  )
   ggplot2::labs(
     x = "Odds Ratio, echelle logarithmique, IC a 95%",
     y = NULL,
