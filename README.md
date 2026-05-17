@@ -86,7 +86,7 @@ MATLAB est uniquement requis pour l’analyse exploratoire située dans le dossi
 
 Depuis la racine du projet :
 
-```powershell
+```r
 source("Modelisation.R")
 ```
 
@@ -101,7 +101,7 @@ Le script cherche automatiquement le fichier de données dans cet ordre :
 
 Après avoir lancé `Modelisation.R` :
 
-```powershell
+```r
 source("Figures_supplementaires.R")
 ```
 
@@ -211,9 +211,9 @@ Interprétation générale :
 
 Pour régénérer l’ensemble des sorties R finales :
 
-```powershell
-Rscript Modelisation.R
-Rscript Figures_supplementaires.R
+```r
+source("Modelisation.R")
+source("Figures_supplementaires.R")
 ```
 
 Les fichiers finaux à vérifier en priorité sont :
