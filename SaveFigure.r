@@ -2,6 +2,8 @@
 # SaveFigure - Sauvegarde standardisee de figures R
 # Supporte ggplot, patchwork, recordedplot et fonctions de tracage base R.
 # Formats supportes : pdf, png, svg, jpg, jpeg, tiff.
+# Inspired by: "Make Great MATLAB Figures for your Scientific Paper or your PhD Thesis"
+# https://www.youtube.com/watch?v=wP3jjk1O18
 # =====================================================================
 
 SaveFigure <- function(plot_object,
